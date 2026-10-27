@@ -1,0 +1,20 @@
+# Detect ecosystems, check toolchains, and prepare restore entry points.
+# Publishes SCAN_* job variables that gate every restore/scan step at runtime,
+# so a repo in an unknown or partially-supported stack still gets scanned.
+parameters:
+  - name: settings
+    type: object
+
+steps:
+  - task: Bash@3
+    displayName: 'Detect technologies & prepare restore'
+    name: detect
+    timeoutInMinutes: 15
+    inputs:
+      targetType: filePath
+      filePath: $(SCAN_SCRIPTS)/detect.sh
+    env:
+      SCAN_EXTRA_EXCLUDE: ${{ parameters.settings.snyk.exclude }}
+      DOTNET_NOLOGO: 'true'
+      DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
+      DOTNET_SKIP_FIRST_TIME_EXPERIENCE: 'true'

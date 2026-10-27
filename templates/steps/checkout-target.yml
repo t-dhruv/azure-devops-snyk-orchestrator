@@ -1,0 +1,24 @@
+# Clone the target repository by ID (cross-project capable) at the tip of the requested branch.
+# Values are passed through env vars, never interpolated into script text.
+parameters:
+  - name: target
+    type: object
+  - name: settings
+    type: object
+
+steps:
+  - task: Bash@3
+    displayName: 'Clone target repository'
+    name: clone
+    timeoutInMinutes: 20
+    inputs:
+      targetType: filePath
+      filePath: $(SCAN_SCRIPTS)/clone-repo.sh
+      failOnStderr: false
+    env:
+      GIT_TOKEN: $(${{ parameters.settings.gitTokenVariable }})
+      TARGET_JSON: ${{ convertToJson(parameters.target) }}
+      TARGET_REPO_ID: ${{ parameters.target.repoId }}
+      TARGET_PROJECT: ${{ parameters.target.project }}
+      TARGET_BRANCH: ${{ parameters.target.branch }}
+      TARGET_SUBMODULES: ${{ coalesce(parameters.target.submodules, false) }}

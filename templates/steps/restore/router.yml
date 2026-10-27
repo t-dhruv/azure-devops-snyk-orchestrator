@@ -1,0 +1,101 @@
+# Restore router.
+# Compile time : `technologies` decides which ecosystems are even considered
+#                ([auto] = all, [none] = skip restore, or an explicit list).
+# Run time     : detect.sh decides which of those actually exist in the repo
+#                and whether a restore is needed (e.g. npm with a lockfile is skipped).
+#
+# Add a new ecosystem: 1) add detection in scripts/detect.sh that sets
+# SCAN_<TECH>_ROOT_<n>, 2) add a block below.
+parameters:
+  - name: technologies
+    type: object
+  - name: settings
+    type: object
+
+steps:
+  - ${{ if not(containsValue(parameters.technologies, 'none')) }}:
+
+    # Optional: install JFrog CLI + Maven/Gradle extractors through Artifactory
+    # (only needed when agents cannot reach releases.jfrog.io).
+    - ${{ if ne(parameters.settings.jfrogArtifactoryConnection, '') }}:
+      - task: JFrogToolsInstaller@1
+        displayName: 'JFrog • install CLI & extractors'
+        condition: and(not(canceled()), eq(variables['SCAN_NEEDS_RESTORE'], 'true'))
+        continueOnError: true
+        inputs:
+          artifactoryConnection: ${{ parameters.settings.jfrogArtifactoryConnection }}
+          cliInstallationRepo: ${{ parameters.settings.jfrogRepos.cli }}
+          installExtractors: true
+          extractorsInstallationRepo: ${{ parameters.settings.jfrogRepos.extractors }}
+
+    # ---- .NET (NuGet) — one aggregate solution covers every project ----------
+    - ${{ if or(containsValue(parameters.technologies, 'auto'), containsValue(parameters.technologies, 'dotnet')) }}:
+      - template: jfrog-restore.yml
+        parameters:
+          tech: '.NET'
+          varPrefix: SCAN_DOTNET
+          slots: ['1']
+          settings: ${{ parameters.settings }}
+          env:
+            DOTNET_NOLOGO: 'true'
+            DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
+          commands: |
+            jf dotnet-config --repo-resolve=${{ parameters.settings.jfrogRepos.nuget }}
+            jf dotnet restore $(SCAN_DOTNET_ENTRY_{n}) --verbosity minimal
+
+    # ---- npm (only roots WITHOUT a lockfile; lockfiles are scanned as-is) ------
+    - ${{ if or(containsValue(parameters.technologies, 'auto'), containsValue(parameters.technologies, 'npm')) }}:
+      - template: jfrog-restore.yml
+        parameters:
+          tech: 'npm'
+          varPrefix: SCAN_NPM
+          settings: ${{ parameters.settings }}
+          commands: |
+            jf npm-config --repo-resolve=${{ parameters.settings.jfrogRepos.npm }}
+            jf npm install --ignore-scripts --no-audit --no-fund --legacy-peer-deps
+
+    # ---- Maven (top-level poms; pre-fetches what Snyk's dependency:tree needs) -
+    - ${{ if or(containsValue(parameters.technologies, 'auto'), containsValue(parameters.technologies, 'maven')) }}:
+      - template: jfrog-restore.yml
+        parameters:
+          tech: 'Maven'
+          varPrefix: SCAN_MAVEN
+          settings: ${{ parameters.settings }}
+          commands: |
+            jf mvn-config --repo-resolve-releases=${{ parameters.settings.jfrogRepos.maven }} --repo-resolve-snapshots=${{ parameters.settings.jfrogRepos.maven }}
+            jf mvn -B -q -fae -f $(SCAN_MAVEN_ROOT_{n})/pom.xml dependency:tree -DskipTests
+
+    # ---- Gradle (cache warm-up; wrapper used when present) ---------------------
+    - ${{ if or(containsValue(parameters.technologies, 'auto'), containsValue(parameters.technologies, 'gradle')) }}:
+      - template: jfrog-restore.yml
+        parameters:
+          tech: 'Gradle'
+          varPrefix: SCAN_GRADLE
+          settings: ${{ parameters.settings }}
+          commands: |
+            jf gradle-config --repo-resolve=${{ parameters.settings.jfrogRepos.gradle }} --use-wrapper=$(SCAN_GRADLE_WRAPPER_{n})
+            jf gradle dependencies --console=plain -q -p $(SCAN_GRADLE_ROOT_{n})
+
+    # ---- Python (pip, into an isolated venv created by detect.sh) --------------
+    - ${{ if or(containsValue(parameters.technologies, 'auto'), containsValue(parameters.technologies, 'python')) }}:
+      - template: jfrog-restore.yml
+        parameters:
+          tech: 'Python'
+          varPrefix: SCAN_PYTHON
+          settings: ${{ parameters.settings }}
+          env:
+            PIP_DISABLE_PIP_VERSION_CHECK: '1'
+          commands: |
+            jf pip-config --repo-resolve=${{ parameters.settings.jfrogRepos.pypi }}
+            jf pip install -r $(SCAN_PYTHON_REQ_{n})
+
+    # ---- Go modules -------------------------------------------------------------
+    - ${{ if or(containsValue(parameters.technologies, 'auto'), containsValue(parameters.technologies, 'go')) }}:
+      - template: jfrog-restore.yml
+        parameters:
+          tech: 'Go'
+          varPrefix: SCAN_GO
+          settings: ${{ parameters.settings }}
+          commands: |
+            jf go-config --repo-resolve=${{ parameters.settings.jfrogRepos.go }}
+            jf go mod download

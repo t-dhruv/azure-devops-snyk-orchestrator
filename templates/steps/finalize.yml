@@ -1,0 +1,16 @@
+# Always runs: collect outputs on the agent, write summary, prune old results.
+parameters:
+  - name: settings
+    type: object
+
+steps:
+  - task: Bash@3
+    displayName: 'Collect results on agent & cleanup'
+    condition: always()
+    inputs:
+      targetType: filePath
+      filePath: $(SCAN_SCRIPTS)/collect-results.sh
+    env:
+      SCAN_RETENTION_DAYS: ${{ parameters.settings.resultsRetentionDays }}
+      SCAN_KEEP_SOURCE: ${{ parameters.settings.keepSource }}
+      SCAN_AUTH_MODE: ${{ parameters.settings.snykAuthMode }}

@@ -1,0 +1,13 @@
+# Snyk IaC (Terraform, Kubernetes, Helm, CloudFormation, ARM). CLI only.
+# Runs only when detect.sh found IaC files.
+parameters:
+  - name: settings
+    type: object
+
+steps:
+  - template: cli-step.yml
+    parameters:
+      mode: iac
+      displayName: 'Snyk • IaC'
+      condition: and(not(canceled()), eq(variables['SCAN_CLONE_OK'], 'true'), eq(variables['SCAN_HAS_IAC'], 'true'))
+      settings: ${{ parameters.settings }}

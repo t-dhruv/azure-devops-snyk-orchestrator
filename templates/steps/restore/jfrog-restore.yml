@@ -1,0 +1,35 @@
+# Generic "restore through JFrog" step, unrolled over N slots.
+#
+# detect.sh publishes <varPrefix>_ROOT_<n> for every project root it found
+# (empty when unused). Each slot runs only when its root is set, so one
+# repo can have e.g. 3 independent npm apps and 2 Go modules.
+#
+# '{n}' inside `commands` is replaced with the slot number at compile time.
+parameters:
+  - name: tech
+    type: string
+  - name: varPrefix
+    type: string
+  - name: commands
+    type: string
+  - name: settings
+    type: object
+  - name: slots
+    type: object
+    default: ['1', '2', '3', '4', '5', '6', '7', '8']   # keep in sync with SCAN_RESTORE_SLOTS
+  - name: env
+    type: object
+    default: {}
+
+steps:
+  - ${{ each slot in parameters.slots }}:
+    - task: JfrogCliV2@1
+      displayName: 'Restore • ${{ parameters.tech }} #${{ slot }}'
+      condition: and(not(canceled()), ne(variables['${{ parameters.varPrefix }}_ROOT_${{ slot }}'], ''))
+      continueOnError: true          # a failed restore must never block the scan
+      timeoutInMinutes: ${{ parameters.settings.timeouts.restoreMinutes }}
+      inputs:
+        jfrogPlatformConnection: ${{ parameters.settings.jfrogServiceConnection }}
+        workingDirectory: $(${{ parameters.varPrefix }}_ROOT_${{ slot }})
+        command: ${{ replace(parameters.commands, '{n}', slot) }}
+      env: ${{ parameters.env }}

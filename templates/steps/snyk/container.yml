@@ -1,0 +1,46 @@
+# Snyk Container for images passed in target.containerImages.
+# Images are pulled through JFrog (jf docker pull) so the registry auth comes
+# from the JFrog service connection; Snyk then scans the local image.
+parameters:
+  - name: images            # [{ image: 'reg/x:tag', dockerfile: 'path/Dockerfile' }]
+    type: object
+  - name: settings
+    type: object
+
+steps:
+  - ${{ each img in parameters.images }}:
+    - task: JfrogCliV2@1
+      displayName: 'Container • pull ${{ img.image }}'
+      condition: and(not(canceled()), eq(variables['SCAN_HAS_DOCKER_CLI'], 'true'))
+      continueOnError: true
+      inputs:
+        jfrogPlatformConnection: ${{ parameters.settings.jfrogServiceConnection }}
+        command: |
+          jf docker pull ${{ img.image }}
+
+    - ${{ if eq(parameters.settings.snykAuthMode, 'serviceConnection') }}:
+      - task: SnykSecurityScan@1
+        displayName: 'Snyk • Container ${{ img.image }}'
+        condition: and(not(canceled()), eq(variables['SCAN_HAS_DOCKER_CLI'], 'true'))
+        continueOnError: true
+        timeoutInMinutes: ${{ parameters.settings.timeouts.scanMinutes }}
+        inputs:
+          serviceConnectionEndpoint: ${{ parameters.settings.snykServiceConnection }}
+          testType: container
+          dockerImageName: ${{ img.image }}
+          dockerfilePath: $(SCAN_SRC_DIR)/${{ coalesce(img.dockerfile, 'Dockerfile') }}
+          monitorWhen: always
+          failOnIssues: false
+          ${{ if ne(parameters.settings.snyk.org, '') }}:
+            organization: ${{ parameters.settings.snyk.org }}
+
+    - ${{ else }}:
+      - template: cli-step.yml
+        parameters:
+          mode: container
+          displayName: 'Snyk • Container ${{ img.image }}'
+          condition: and(not(canceled()), eq(variables['SCAN_HAS_DOCKER_CLI'], 'true'))
+          settings: ${{ parameters.settings }}
+          extraEnv:
+            SCAN_IMAGE: ${{ img.image }}
+            SCAN_DOCKERFILE: ${{ img.dockerfile }}

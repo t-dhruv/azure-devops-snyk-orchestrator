@@ -1,0 +1,35 @@
+# Shared Snyk CLI step (token mode + IaC). Never fails the job on findings.
+parameters:
+  - name: mode            # sca | code | iac | container
+    type: string
+  - name: displayName
+    type: string
+  - name: condition
+    type: string
+    default: and(not(canceled()), eq(variables['SCAN_CLONE_OK'], 'true'))
+  - name: settings
+    type: object
+  - name: extraEnv
+    type: object
+    default: {}
+
+steps:
+  - task: Bash@3
+    displayName: ${{ parameters.displayName }}
+    condition: ${{ parameters.condition }}
+    continueOnError: true
+    timeoutInMinutes: ${{ parameters.settings.timeouts.scanMinutes }}
+    inputs:
+      targetType: filePath
+      filePath: $(SCAN_SCRIPTS)/snyk-cli-scan.sh
+      arguments: ${{ parameters.mode }}
+    env:
+      SNYK_TOKEN: $(SNYK_TOKEN)
+      SNYK_DISABLE_ANALYTICS: '1'
+      SCAN_SNYK_ORG: ${{ parameters.settings.snyk.org }}
+      SCAN_DETECTION_DEPTH: ${{ parameters.settings.snyk.detectionDepth }}
+      SCAN_EXTRA_ARGS: ${{ parameters.settings.snyk.extraArgs }}
+      SCAN_CODE_REPORT: ${{ parameters.settings.snyk.codeReport }}
+      SCAN_SCA_ALSO_TEST: ${{ parameters.settings.snyk.scaAlsoTest }}
+      ${{ each pair in parameters.extraEnv }}:
+        ${{ pair.key }}: ${{ pair.value }}

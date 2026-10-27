@@ -1,0 +1,35 @@
+# Snyk Open Source (SCA) across every manifest/lockfile in the repo (--all-projects).
+parameters:
+  - name: settings
+    type: object
+
+steps:
+  - ${{ if eq(parameters.settings.snykAuthMode, 'serviceConnection') }}:
+    - task: SnykSecurityScan@1
+      displayName: 'Snyk • Open Source (SCA)'
+      condition: and(not(canceled()), eq(variables['SCAN_CLONE_OK'], 'true'))
+      continueOnError: true
+      timeoutInMinutes: ${{ parameters.settings.timeouts.scanMinutes }}
+      inputs:
+        serviceConnectionEndpoint: ${{ parameters.settings.snykServiceConnection }}
+        testType: app
+        testDirectory: $(SCAN_SRC_DIR)
+        monitorWhen: always          # snapshot lands in Snyk -> dashboard reads it there
+        failOnIssues: false
+        ${{ if ne(parameters.settings.snyk.org, '') }}:
+          organization: ${{ parameters.settings.snyk.org }}
+        additionalArguments: >-
+          --all-projects
+          --detection-depth=${{ parameters.settings.snyk.detectionDepth }}
+          --exclude=$(SCAN_SNYK_EXCLUDE)
+          --remote-repo-url=$(SCAN_REPO_WEBURL)
+          --target-reference=$(SCAN_REF)
+          $(SCAN_SNYK_PY_ARGS)
+          ${{ parameters.settings.snyk.extraArgs }}
+
+  - ${{ else }}:
+    - template: cli-step.yml
+      parameters:
+        mode: sca
+        displayName: 'Snyk • Open Source (SCA)'
+        settings: ${{ parameters.settings }}

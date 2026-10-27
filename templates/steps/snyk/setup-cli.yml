@@ -1,0 +1,25 @@
+# Install / reuse the Snyk CLI on the agent (cached under Agent.ToolsDirectory).
+# Source order: already on PATH -> cached copy -> JFrog generic repo -> download URL.
+parameters:
+  - name: settings
+    type: object
+
+steps:
+  - ${{ if ne(parameters.settings.snyk.cliJfrogPath, '') }}:
+    - task: JfrogCliV2@1
+      displayName: 'Snyk CLI • download from JFrog'
+      condition: not(canceled())
+      continueOnError: true
+      inputs:
+        jfrogPlatformConnection: ${{ parameters.settings.jfrogServiceConnection }}
+        command: |
+          jf rt dl ${{ parameters.settings.snyk.cliJfrogPath }} $(Agent.ToolsDirectory)/snyk-cli/ --flat
+
+  - task: Bash@3
+    displayName: 'Snyk CLI • install'
+    condition: not(canceled())
+    inputs:
+      targetType: filePath
+      filePath: $(SCAN_SCRIPTS)/snyk-cli-install.sh
+    env:
+      SNYK_CLI_URL: ${{ parameters.settings.snyk.cliDownloadUrl }}

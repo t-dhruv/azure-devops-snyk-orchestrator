@@ -1,0 +1,28 @@
+# Snyk Code (SAST). Language-agnostic, needs no restore.
+parameters:
+  - name: settings
+    type: object
+
+steps:
+  - ${{ if eq(parameters.settings.snykAuthMode, 'serviceConnection') }}:
+    - task: SnykSecurityScan@1
+      displayName: 'Snyk • Code (SAST)'
+      condition: and(not(canceled()), eq(variables['SCAN_CLONE_OK'], 'true'))
+      continueOnError: true
+      timeoutInMinutes: ${{ parameters.settings.timeouts.scanMinutes }}
+      inputs:
+        serviceConnectionEndpoint: ${{ parameters.settings.snykServiceConnection }}
+        testType: code
+        testDirectory: $(SCAN_SRC_DIR)
+        failOnIssues: false
+        ${{ if ne(parameters.settings.snyk.org, '') }}:
+          organization: ${{ parameters.settings.snyk.org }}
+        ${{ if ne(parameters.settings.snyk.extraArgs, '') }}:
+          additionalArguments: ${{ parameters.settings.snyk.extraArgs }}
+
+  - ${{ else }}:
+    - template: cli-step.yml
+      parameters:
+        mode: code
+        displayName: 'Snyk • Code (SAST)'
+        settings: ${{ parameters.settings }}

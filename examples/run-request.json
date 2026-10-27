@@ -1,0 +1,9 @@
+{
+  "previewRun": false,
+  "resources": { "repositories": { "self": { "refName": "refs/heads/main" } } },
+  "templateParameters": {
+    "requestId": "nightly-20261026-001",
+    "maxTargets": "5",
+    "scanTargets": "[{\"repoId\":\"6b1e2f3a-1111-4c2d-9a8b-0f1e2d3c4b5a\",\"project\":\"Claims\",\"branch\":\"main\",\"key\":\"claims_api\"},{\"repoId\":\"0a9b8c7d-2222-4e3f-8a7b-1c2d3e4f5a6b\",\"project\":\"Claims\",\"branch\":\"release/2026.10\",\"technologies\":[\"npm\"],\"scanTypes\":[\"sca\",\"code\"]},{\"repoId\":\"11223344-3333-4555-8666-778899aabbcc\",\"project\":\"Platform\",\"branch\":\"develop\",\"scanTypes\":[\"sca\",\"iac\",\"container\"],\"containerImages\":[{\"image\":\"myco.jfrog.io/docker-virtual/gateway:3.2.1\",\"dockerfile\":\"Dockerfile\"}]}]"
+  }
+}

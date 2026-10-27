@@ -1,0 +1,182 @@
+# =============================================================================
+#  Snyk Scan Orchestrator
+#  -----------------------------------------------------------------------------
+#  Queued by a background job through the Pipelines "Runs" REST API.
+#  One run = 1..5 scan targets. Each target becomes its own stage, all stages
+#  run in parallel (dependsOn: []), each on its own Linux agent.
+#
+#  Per target:  clone (by repoId) -> detect tech -> restore via JFrog -> Snyk
+#               (SCA / Code / IaC / Container) -> save outputs on the agent.
+#
+#  The pipeline only TRIGGERS scans. It never gates on vulnerabilities.
+# =============================================================================
+
+trigger: none
+pr: none
+
+name: snyk-$(Date:yyyyMMdd)$(Rev:.r)
+
+parameters:
+  # ---- Per-run input (sent by the background job) ---------------------------
+  - name: scanTargets
+    displayName: 'Scan targets (JSON array, 1..maxTargets items)'
+    type: object
+    default: []
+    # Item shape (repoId + branch are required):
+    # - repoId: '6b1e...guid'          # Azure Repos repository ID
+    #   branch: 'main'                 # branch to clone (tip of branch), 'refs/heads/' prefix optional
+    #   project: 'Claims'              # optional, speeds up lookup
+    #   key: 'claims_api'              # optional stage key [A-Za-z0-9_], defaults to repoId
+    #   technologies: [auto]           # optional: auto | none | dotnet npm maven gradle python go
+    #   scanTypes: [sca, code, iac]    # optional: sca code iac container
+    #   containerImages:               # optional, only used when 'container' in scanTypes
+    #     - image: 'myco.jfrog.io/docker/claims-api:1.4.2'
+    #       dockerfile: 'src/Claims.Api/Dockerfile'
+    #   submodules: false              # optional
+
+  - name: requestId
+    displayName: 'Correlation id from the background job'
+    type: string
+    default: 'manual'
+
+  - name: maxTargets
+    displayName: 'Max repos per run (parallel stages)'
+    type: number
+    default: 5
+
+  # ---- Service connections / secrets ---------------------------------------
+  - name: jfrogServiceConnection
+    displayName: 'JFrog Platform V2 service connection'
+    type: string
+    default: 'jfrog-platform'
+
+  - name: jfrogArtifactoryConnection
+    displayName: 'JFrog Artifactory V2 connection (optional, for JFrog Tools Installer)'
+    type: string
+    default: ''
+
+  - name: snykAuthMode
+    displayName: 'Snyk auth: serviceConnection (Snyk task) or token (Snyk CLI)'
+    type: string
+    default: 'serviceConnection'
+    values:
+      - serviceConnection
+      - token
+
+  - name: snykServiceConnection
+    displayName: 'Snyk service connection (SnykAuth)'
+    type: string
+    default: 'snyk'
+
+  - name: snykTokenVariableGroup
+    displayName: 'Variable group with secret SNYK_TOKEN (needed for token mode and IaC)'
+    type: string
+    default: ''
+
+  - name: gitTokenVariable
+    displayName: 'Variable holding the token used to clone target repos'
+    type: string
+    default: 'System.AccessToken'
+
+  # ---- Behaviour -------------------------------------------------------------
+  - name: defaultScanTypes
+    type: object
+    default: [sca, code, iac]
+
+  - name: jfrogRepos
+    type: object
+    default:
+      nuget: 'nuget-virtual'
+      npm: 'npm-virtual'
+      maven: 'maven-virtual'
+      gradle: 'gradle-virtual'
+      pypi: 'pypi-virtual'
+      go: 'go-virtual'
+      cli: 'jfrog-cli-remote'        # used only with jfrogArtifactoryConnection
+      extractors: 'extractors'       # used only with jfrogArtifactoryConnection
+
+  - name: snykOptions
+    type: object
+    default:
+      org: ''                        # Snyk org id/slug, empty = token default org
+      detectionDepth: 8
+      exclude: ''                    # extra comma-separated dir names for --exclude
+      extraArgs: ''                  # appended to every Snyk CLI/task call
+      codeReport: true               # snyk code test --report (CLI mode)
+      scaAlsoTest: false             # also run 'snyk test' to save local JSON (CLI mode)
+      cliDownloadUrl: 'https://static.snyk.io/cli/latest/snyk-linux'
+      cliJfrogPath: ''               # e.g. 'generic-remote/snyk/cli/latest/snyk-linux'
+
+  - name: poolName
+    type: string
+    default: 'linux-snyk'
+
+  - name: resultsRoot
+    displayName: 'Where scan outputs are kept on the agent'
+    type: string
+    default: '$(Agent.WorkFolder)/_snyk-results'
+
+  - name: resultsRetentionDays
+    type: number
+    default: 14
+
+  - name: keepSource
+    displayName: 'Keep cloned source on the agent after the scan'
+    type: boolean
+    default: false
+
+  - name: timeouts
+    type: object
+    default:
+      jobMinutes: 120
+      restoreMinutes: 30
+      scanMinutes: 45
+
+# -----------------------------------------------------------------------------
+stages:
+  - ${{ if or(eq(length(parameters.scanTargets), 0), gt(length(parameters.scanTargets), parameters.maxTargets)) }}:
+    - stage: InvalidRequest
+      displayName: 'Invalid request'
+      jobs:
+        - job: Reject
+          pool:
+            name: ${{ parameters.poolName }}
+          steps:
+            - checkout: none
+            - bash: |
+                echo "##vso[task.logissue type=error]scanTargets must contain 1-${{ parameters.maxTargets }} items, got ${{ length(parameters.scanTargets) }}."
+                exit 1
+              displayName: 'Reject request'
+
+  - ${{ else }}:
+    - ${{ each target in parameters.scanTargets }}:
+      - template: templates/stages/scan-target.yml
+        parameters:
+          target: ${{ target }}
+          key: ${{ coalesce(target.key, replace(target.repoId, '-', '_')) }}
+
+          ${{ if target.scanTypes }}:
+            scanTypes: ${{ target.scanTypes }}
+          ${{ if not(target.scanTypes) }}:
+            scanTypes: ${{ parameters.defaultScanTypes }}
+
+          ${{ if target.technologies }}:
+            technologies: ${{ target.technologies }}
+          ${{ if not(target.technologies) }}:
+            technologies: [auto]
+
+          settings:
+            requestId: ${{ parameters.requestId }}
+            poolName: ${{ parameters.poolName }}
+            gitTokenVariable: ${{ parameters.gitTokenVariable }}
+            jfrogServiceConnection: ${{ parameters.jfrogServiceConnection }}
+            jfrogArtifactoryConnection: ${{ parameters.jfrogArtifactoryConnection }}
+            jfrogRepos: ${{ parameters.jfrogRepos }}
+            snykAuthMode: ${{ parameters.snykAuthMode }}
+            snykServiceConnection: ${{ parameters.snykServiceConnection }}
+            snykTokenVariableGroup: ${{ parameters.snykTokenVariableGroup }}
+            snyk: ${{ parameters.snykOptions }}
+            resultsRoot: ${{ parameters.resultsRoot }}
+            resultsRetentionDays: ${{ parameters.resultsRetentionDays }}
+            keepSource: ${{ parameters.keepSource }}
+            timeouts: ${{ parameters.timeouts }}

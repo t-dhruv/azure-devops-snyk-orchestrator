@@ -1,0 +1,80 @@
+# One stage + one job per scan target.
+# Single job on purpose: clone, restore and scan must share the same disk.
+parameters:
+  - name: target
+    type: object
+  - name: key
+    type: string
+  - name: scanTypes
+    type: object
+  - name: technologies
+    type: object
+  - name: settings
+    type: object
+
+stages:
+  - stage: Scan_${{ parameters.key }}
+    displayName: 'Snyk • ${{ coalesce(parameters.target.repoName, parameters.target.key, parameters.target.repoId) }}'
+    dependsOn: []            # every target runs in parallel
+    jobs:
+      - job: Scan
+        displayName: 'Restore & scan'
+        timeoutInMinutes: ${{ parameters.settings.timeouts.jobMinutes }}
+        cancelTimeoutInMinutes: 5
+        pool:
+          name: ${{ parameters.settings.poolName }}
+        workspace:
+          clean: all
+        variables:
+          - name: SCAN_KEY
+            value: ${{ parameters.key }}
+          - name: SCAN_REQUEST_ID
+            value: ${{ parameters.settings.requestId }}
+          - name: SCAN_SCRIPTS
+            value: $(Pipeline.Workspace)/pipeline/scripts
+          - name: SCAN_SRC_DIR
+            value: $(Pipeline.Workspace)/src
+          - name: SCAN_RESULTS_ROOT
+            value: ${{ parameters.settings.resultsRoot }}
+          - name: SCAN_OUT_DIR
+            value: ${{ parameters.settings.resultsRoot }}/$(Build.BuildId)/${{ parameters.key }}
+          - name: SCAN_TECHNOLOGIES
+            value: ${{ join(',', parameters.technologies) }}
+          - name: SCAN_TYPES
+            value: ${{ join(',', parameters.scanTypes) }}
+          - name: SCAN_RESTORE_SLOTS
+            value: 8
+          - ${{ if ne(parameters.settings.snykTokenVariableGroup, '') }}:
+            - group: ${{ parameters.settings.snykTokenVariableGroup }}
+
+        steps:
+          # Pipeline repo (templates + scripts) only. Target repo is cloned by ID below.
+          - checkout: self
+            path: pipeline
+            fetchDepth: 1
+            clean: true
+            persistCredentials: false
+
+          - template: ../steps/checkout-target.yml
+            parameters:
+              target: ${{ parameters.target }}
+              settings: ${{ parameters.settings }}
+
+          - template: ../steps/detect.yml
+            parameters:
+              settings: ${{ parameters.settings }}
+
+          - template: ../steps/restore/router.yml
+            parameters:
+              technologies: ${{ parameters.technologies }}
+              settings: ${{ parameters.settings }}
+
+          - template: ../steps/snyk/router.yml
+            parameters:
+              target: ${{ parameters.target }}
+              scanTypes: ${{ parameters.scanTypes }}
+              settings: ${{ parameters.settings }}
+
+          - template: ../steps/finalize.yml
+            parameters:
+              settings: ${{ parameters.settings }}

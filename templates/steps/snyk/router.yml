@@ -1,0 +1,48 @@
+# Snyk router: picks scan templates from scanTypes and the auth mode.
+#   serviceConnection -> SnykSecurityScan@1 task for SCA / Code / Container
+#   token             -> Snyk CLI for everything (local JSON/SARIF kept on the agent)
+#   IaC is CLI-only (the Snyk task has no IaC mode), so it needs the token group.
+parameters:
+  - name: target
+    type: object
+  - name: scanTypes
+    type: object
+  - name: settings
+    type: object
+
+steps:
+  - ${{ if or(eq(parameters.settings.snykAuthMode, 'token'), containsValue(parameters.scanTypes, 'iac')) }}:
+    - ${{ if ne(parameters.settings.snykTokenVariableGroup, '') }}:
+      - template: setup-cli.yml
+        parameters:
+          settings: ${{ parameters.settings }}
+    - ${{ elseif eq(parameters.settings.snykAuthMode, 'token') }}:
+      - bash: |
+          echo "##vso[task.logissue type=error]snykAuthMode=token requires snykTokenVariableGroup (secret SNYK_TOKEN)."
+          exit 1
+        displayName: 'Snyk • missing token configuration'
+
+  - ${{ if containsValue(parameters.scanTypes, 'sca') }}:
+    - template: sca.yml
+      parameters:
+        settings: ${{ parameters.settings }}
+
+  - ${{ if containsValue(parameters.scanTypes, 'code') }}:
+    - template: code.yml
+      parameters:
+        settings: ${{ parameters.settings }}
+
+  - ${{ if containsValue(parameters.scanTypes, 'iac') }}:
+    - ${{ if ne(parameters.settings.snykTokenVariableGroup, '') }}:
+      - template: iac.yml
+        parameters:
+          settings: ${{ parameters.settings }}
+    - ${{ else }}:
+      - bash: echo "##vso[task.logissue type=warning]IaC scan skipped - it needs the Snyk CLI token group (snykTokenVariableGroup)."
+        displayName: 'Snyk • IaC skipped'
+
+  - ${{ if and(containsValue(parameters.scanTypes, 'container'), parameters.target.containerImages) }}:
+    - template: container.yml
+      parameters:
+        images: ${{ parameters.target.containerImages }}
+        settings: ${{ parameters.settings }}
