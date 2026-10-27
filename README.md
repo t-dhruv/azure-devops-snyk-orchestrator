@@ -21,6 +21,8 @@ ADO_ORG=myorg ADO_PROJECT=DevSecOps PIPELINE_ID=123 ADO_PAT=*** MAX_TARGETS=5 ./
 PREVIEW=true ADO_ORG=... ./examples/trigger-scan.sh targets.json
 ```
 
+> **Before your first test:** work through [FIRST-RUN.md](FIRST-RUN.md), which covers extensions, service connections, permissions, agent packages and the values to edit.
+
 The scan outputs end up on the agent at `$(Agent.WorkFolder)/_snyk-results/<BuildId>/<repoKey>/`, which holds `summary.json`, `detection.json`, logs, JSON/SARIF files, and the task reports.
 
 ---
